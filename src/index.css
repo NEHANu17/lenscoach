@@ -1,75 +1,201 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+  :root[data-theme="dark"] {
+    --bg: #080808;
+    --bg2: #111010;
+    --card-bg: #141210;
+    --border: #2a2218;
+    --amber: #C8924A;
+    --amber-dim: #8A6030;
+    --cream: #F0EBE3;
+    --silver: #9A9590;
+    --muted: #5A5550;
+    --text: #F0EBE3;
+    --subtext: #9A9590;
+    --grain-op: 0.05;
+    --vignette: rgba(0,0,0,0.5);
+    --nav-bg: rgba(8,8,8,0.96);
+    --how-bg: #0e0c0a;
+    --how-border: #1e1a14;
+    --popup-bg: #141210;
+    --popup-border: rgba(200,146,74,0.25);
+    --input-bg: rgba(200,146,74,0.06);
+    --overlay-bg: rgba(0,0,0,0.88);
+    --error: #e05555;
+    --google-btn-bg: #ffffff;
+    --google-btn-text: #3c4043;
+    --google-btn-border: #747775;
+    --background: 0 0% 3%;
+    --foreground: 30 20% 92%;
+    --card: 30 8% 8%;
+    --card-foreground: 30 20% 92%;
+    --popover: 30 8% 8%;
+    --popover-foreground: 30 20% 92%;
+    --primary: 35 45% 54%;
+    --primary-foreground: 0 0% 3%;
+    --secondary: 30 8% 12%;
+    --secondary-foreground: 30 20% 92%;
+    --muted-color: 30 5% 15%;
+    --muted-foreground: 30 5% 44%;
+    --accent: 35 45% 54%;
+    --accent-foreground: 0 0% 3%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
-    --radius: 0.625rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border-color: 30 20% 14%;
+    --input-color: 30 20% 14%;
+    --ring: 35 45% 54%;
+    --radius: 0.25rem;
   }
 
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 5.9% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+  :root[data-theme="light"] {
+    --bg: #F5F0E8;
+    --bg2: #EDE8DF;
+    --card-bg: #FFFFFF;
+    --border: #D8D0C0;
+    --amber: #A06820;
+    --amber-dim: #C8924A;
+    --cream: #1A1208;
+    --silver: #6A6058;
+    --muted: #9A9080;
+    --text: #1A1208;
+    --subtext: #6A6058;
+    --grain-op: 0.02;
+    --vignette: rgba(180,160,120,0.1);
+    --nav-bg: rgba(245,240,232,0.96);
+    --how-bg: #EDE8DF;
+    --how-border: #D0C8B8;
+    --popup-bg: #FFFFFF;
+    --popup-border: rgba(160,104,32,0.3);
+    --input-bg: rgba(160,104,32,0.06);
+    --overlay-bg: rgba(245,240,232,0.92);
+    --error: #c0392b;
+    --google-btn-bg: #ffffff;
+    --google-btn-text: #3c4043;
+    --google-btn-border: #747775;
+    --background: 40 25% 93%;
+    --foreground: 30 35% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 35% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 35% 8%;
+    --primary: 30 55% 38%;
+    --primary-foreground: 40 25% 93%;
+    --secondary: 40 20% 88%;
+    --secondary-foreground: 30 35% 8%;
+    --muted-color: 40 15% 90%;
+    --muted-foreground: 30 10% 40%;
+    --accent: 30 55% 38%;
+    --accent-foreground: 40 25% 93%;
+    --destructive: 0 60% 48%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 240 4.9% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border-color: 40 20% 80%;
+    --input-color: 40 20% 80%;
+    --ring: 30 55% 38%;
+    --radius: 0.25rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    overflow-x: hidden;
+    transition: background 0.35s, color 0.35s;
+  }
+
+  body.locked {
+    overflow: hidden;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
+@layer components {
+  .font-display {
+    font-family: 'Cormorant Garamond', serif;
   }
-  body {
-    @apply bg-background text-foreground;
+
+  .font-body {
+    font-family: 'DM Sans', sans-serif;
+  }
+}
+
+@layer utilities {
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .animate-fade-up {
+    animation: fadeUp 0.8s ease forwards;
+  }
+
+  .animate-fade-up-delay-1 {
+    animation: fadeUp 0.8s ease 0.1s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-2 {
+    animation: fadeUp 0.9s ease 0.25s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-3 {
+    animation: fadeUp 0.9s ease 0.4s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-4 {
+    animation: fadeUp 0.9s ease 0.5s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-5 {
+    animation: fadeUp 0.8s ease 0.6s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-6 {
+    animation: fadeUp 1s ease 0.65s forwards;
+    opacity: 0;
+  }
+
+  .animate-fade-up-delay-7 {
+    animation: fadeUp 0.8s ease 0.8s forwards;
+    opacity: 0;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .gate-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(8,8,8,0.3);
+    border-top-color: #080808;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
   }
 }
