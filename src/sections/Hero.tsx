@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { trpc } from '@/providers/trpc';
 
 export default function Hero() {
   const [email, setEmail] = useState('');
@@ -8,6 +9,11 @@ export default function Hero() {
   const dividerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const autoDone = useRef(false);
+
+  // Load hero images from Supabase
+  const { data: heroImages = [] } = trpc.hero.list.useQuery();
+  const slide1 = heroImages.find((h) => h.slot === 1);
+  const slide2 = heroImages.find((h) => h.slot === 2);
 
   function handleHeroEmail() {
     const val = email.trim();
@@ -78,6 +84,8 @@ export default function Hero() {
       window.removeEventListener('touchmove', onTouchMove);
     };
   }, [setSlider]);
+
+  const hasCustomImages = !!slide1?.imageUrl || !!slide2?.imageUrl;
 
   return (
     <section
@@ -181,16 +189,22 @@ export default function Hero() {
           boxShadow: '0 32px 100px rgba(0,0,0,0.7), 0 0 0 1px rgba(200,146,74,0.15)',
         }}
       >
-        {/* After layer */}
+        {/* After layer (Slide 2 or fallback gradient) */}
         <div
           className="absolute inset-0 flex items-center justify-center"
           style={{
-            background: 'linear-gradient(135deg,#1a0f05 0%,#3d2510 25%,#6b4020 50%,#9a6535 70%,#c4923a 85%,#8a5520 100%)',
+            background: slide2?.imageUrl
+              ? `url(${slide2.imageUrl}) center/cover no-repeat`
+              : 'linear-gradient(135deg,#1a0f05 0%,#3d2510 25%,#6b4020 50%,#9a6535 70%,#c4923a 85%,#8a5520 100%)',
             zIndex: 0,
           }}
         >
-          <div className="absolute w-[260px] h-[260px] rounded-full opacity-25" style={{ background: '#ffaa44', top: '-80px', right: '60px' }} />
-          <div className="absolute w-[160px] h-[160px] rounded-full opacity-20" style={{ background: '#ff8822', bottom: '30px', left: '100px' }} />
+          {!hasCustomImages && (
+            <>
+              <div className="absolute w-[260px] h-[260px] rounded-full opacity-25" style={{ background: '#ffaa44', top: '-80px', right: '60px' }} />
+              <div className="absolute w-[160px] h-[160px] rounded-full opacity-20" style={{ background: '#ff8822', bottom: '30px', left: '100px' }} />
+            </>
+          )}
           <span
             className="absolute bottom-3 text-[clamp(9px,2vw,10px)] tracking-[2px] uppercase font-medium rounded-[2px] px-2.5 py-1"
             style={{
@@ -202,11 +216,11 @@ export default function Hero() {
               zIndex: 5,
             }}
           >
-            After · Tokyo Night LUT
+            {slide2?.caption ?? 'After · Tokyo Night LUT'}
           </span>
         </div>
 
-        {/* Reveal half (before) */}
+        {/* Reveal half (Slide 1 or fallback gradient) */}
         <div
           ref={revealRef}
           className="absolute top-0 left-0 bottom-0 overflow-hidden"
@@ -216,12 +230,18 @@ export default function Hero() {
             className="absolute left-0 top-0 bottom-0 flex items-center justify-center"
             style={{
               width: 'min(800px, 94vw)',
-              background: 'linear-gradient(135deg,#3a3a3a 0%,#5a5a5a 30%,#4a4040 60%,#383030 100%)',
-              filter: 'saturate(0.3) brightness(1.1)',
+              background: slide1?.imageUrl
+                ? `url(${slide1.imageUrl}) center/cover no-repeat`
+                : 'linear-gradient(135deg,#3a3a3a 0%,#5a5a5a 30%,#4a4040 60%,#383030 100%)',
+              filter: slide1?.imageUrl ? 'none' : 'saturate(0.3) brightness(1.1)',
             }}
           >
-            <div className="absolute w-[200px] h-[200px] rounded-full opacity-15" style={{ background: '#fff', top: '-60px', right: '80px' }} />
-            <div className="absolute w-[120px] h-[120px] rounded-full opacity-15" style={{ background: '#ccc', bottom: '40px', left: '120px' }} />
+            {!hasCustomImages && (
+              <>
+                <div className="absolute w-[200px] h-[200px] rounded-full opacity-15" style={{ background: '#fff', top: '-60px', right: '80px' }} />
+                <div className="absolute w-[120px] h-[120px] rounded-full opacity-15" style={{ background: '#ccc', bottom: '40px', left: '120px' }} />
+              </>
+            )}
             <span
               className="absolute bottom-3 text-[clamp(9px,2vw,10px)] tracking-[2px] uppercase font-medium rounded-[2px] px-2.5 py-1"
               style={{
@@ -232,7 +252,7 @@ export default function Hero() {
                 zIndex: 5,
               }}
             >
-              Before · Raw footage
+              {slide1?.caption ?? 'Before · Raw footage'}
             </span>
           </div>
         </div>

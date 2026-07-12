@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { addToWaitlist, isOnWaitlist, sendEarlyAccessEmail } from '@/lib/auth';
+import { sendEarlyAccessEmail } from '@/lib/auth';
+import { trpc } from '@/providers/trpc';
 
 export default function Waitlist() {
   const [email, setEmail] = useState('');
@@ -9,6 +10,8 @@ export default function Waitlist() {
   const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
   const sectionRef = useRef<HTMLDivElement>(null);
 
+  const signup = trpc.waitlist.signup.useMutation();
+
   async function handleSubmit() {
     const val = email.trim();
     if (!val || !val.includes('@')) {
@@ -16,29 +19,32 @@ export default function Waitlist() {
       return;
     }
 
-    // Check if already signed up
-    if (isOnWaitlist(val)) {
-      setError('This email is already on the early access list.');
-      return;
-    }
-
     setSending(true);
     setError('');
     setEmailStatus('sending');
 
-    // Add to local waitlist
-    addToWaitlist(val);
+    try {
+      const result = await signup.mutateAsync({ email: val });
+      if (!result.success) {
+        setError(result.message);
+        setSending(false);
+        setEmailStatus('idle');
+        return;
+      }
+    } catch {
+      setError('Failed to sign up. Please try again.');
+      setSending(false);
+      setEmailStatus('idle');
+      return;
+    }
 
     // Send notification to admin (nehan.apex@gmail.com)
     let emailSent = false;
     try {
       const result = await sendEarlyAccessEmail(val);
       emailSent = result.success;
-      if (!result.success) {
-        console.warn('Early access email failed:', result.error);
-      }
     } catch {
-      // Silent fail — user still gets confirmation
+      // Silent fail
     }
 
     setEmailStatus(emailSent ? 'sent' : 'failed');
@@ -73,7 +79,6 @@ export default function Waitlist() {
       className="py-20 px-5 text-center relative transition-colors duration-350"
       style={{ background: 'var(--how-bg)' }}
     >
-      {/* Top line */}
       <div
         className="absolute top-0 left-1/2 -translate-x-1/2 w-px h-12"
         style={{ background: 'linear-gradient(to bottom, transparent, var(--muted))' }}

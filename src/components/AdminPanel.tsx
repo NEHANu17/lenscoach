@@ -1,22 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  sha256,
-  getUsers,
-  removeUser,
-  getWaitlist,
-  getLuts,
-  updateLut,
-  saveLuts,
-  saveVideo,
-  removeVideo,
-  DEFAULT_LUTS,
-  type User,
-  type LutData,
-  type VideoEntry,
-} from '@/lib/auth';
-import { getAllVideosDB, getVideoStorageSizeMB } from '@/lib/videoStore';
+import { useState, useRef, useEffect } from "react";
+import { sha256, setAdminPin, clearAdminPin } from "@/lib/auth";
+import { trpc } from "@/providers/trpc";
 
-const ADMIN_HASH = 'f6fd73d07ce373f3936bfebcce8c2318dab09207c063d68feb670a0595ddbec2';
+const ADMIN_HASH =
+  "f6fd73d07ce373f3936bfebcce8c2318dab09207c063d68feb670a0595ddbec2";
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -25,81 +12,101 @@ interface AdminPanelProps {
 
 export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
   const [unlocked, setUnlocked] = useState(false);
-  const [pin, setPin] = useState('');
+  const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(false);
-  const [members, setMembers] = useState<User[]>([]);
-  const [waitlist, setWaitlist] = useState<string[]>([]);
-  const [luts, setLuts] = useState<LutData[]>(getLuts());
-  const [videos, setVideos] = useState<Record<string, VideoEntry>>({});
-  const [storageSize, setStorageSize] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<'luts' | 'members' | 'waitlist'>('luts');
-  const [editingLut, setEditingLut] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<LutData>>({});
-  const [uploadError, setUploadError] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<"luts" | "members" | "waitlist" | "hero">("luts");
+  const [uploadError, setUploadError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const overlayRef = useRef<HTMLDivElement>(null);
   const pinInputRef = useRef<HTMLInputElement>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const loadMembers = useCallback(() => {
-    setMembers(getUsers());
-  }, []);
+  // ── tRPC data ──
+  const utils = trpc.useUtils();
+  const { data: luts = [] } = trpc.lut.list.useQuery();
+  const { data: members = [] } = trpc.user.list.useQuery();
+  const { data: waitlistEntries = [] } = trpc.waitlist.list.useQuery();
+  const { data: heroImages = [] } = trpc.hero.list.useQuery();
 
-  const loadWaitlist = useCallback(() => {
-    setWaitlist(getWaitlist());
-  }, []);
+  const updateLut = trpc.lut.update.useMutation({
+    onSuccess: () => utils.lut.list.invalidate(),
+  });
+  const createLut = trpc.lut.create.useMutation({
+    onSuccess: () => {
+      utils.lut.list.invalidate();
+      setSuccessMsg("LUT created successfully!");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    },
+  });
+  const deleteLut = trpc.lut.delete.useMutation({
+    onSuccess: () => utils.lut.list.invalidate(),
+  });
+  const resetLuts = trpc.lut.resetDefaults.useMutation({
+    onSuccess: () => utils.lut.list.invalidate(),
+  });
+  const uploadVideo = trpc.lut.uploadVideo.useMutation({
+    onSuccess: () => {
+      utils.lut.list.invalidate();
+      setSuccessMsg("Video uploaded!");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    },
+  });
+  const removeVideo = trpc.lut.removeVideo.useMutation({
+    onSuccess: () => utils.lut.list.invalidate(),
+  });
+  const removeUser = trpc.user.remove.useMutation({
+    onSuccess: () => utils.user.list.invalidate(),
+  });
+  const updateHero = trpc.hero.update.useMutation({
+    onSuccess: () => {
+      utils.hero.list.invalidate();
+      setSuccessMsg("Hero image updated!");
+      setTimeout(() => setSuccessMsg(""), 3000);
+    },
+  });
 
-  const loadVideos = useCallback(async () => {
-    try {
-      const all = await getAllVideosDB();
-      setVideos(all);
-      const size = await getVideoStorageSizeMB();
-      setStorageSize(size);
-    } catch {
-      setVideos({});
-    }
-  }, []);
+  // ── Edit state ──
+  const [editingLut, setEditingLut] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<{
+    name: string;
+    tag: string;
+    description: string;
+    icon: string;
+    gradient: string;
+  }>>({});
 
-  // Load data when panel opens/unlocks
+  // ── Create LUT state ──
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    lutId: "",
+    name: "",
+    tag: "",
+    description: "",
+    icon: "",
+    gradient: "",
+  });
+
   useEffect(() => {
     if (isOpen && !unlocked) {
-      setPin('');
+      setPin("");
       setPinError(false);
-      setUploadError('');
+      setUploadError("");
+      setSuccessMsg("");
       setTimeout(() => pinInputRef.current?.focus(), 300);
     }
-    if (isOpen && unlocked) {
-      loadMembers();
-      loadWaitlist();
-      setLuts(getLuts());
-      loadVideos();
-    }
-  }, [isOpen, unlocked, loadMembers, loadWaitlist, loadVideos]);
-
-  // Refresh members when switching TO members tab
-  useEffect(() => {
-    if (isOpen && unlocked && activeTab === 'members') {
-      loadMembers();
-    }
-  }, [isOpen, unlocked, activeTab, loadMembers]);
-
-  // Refresh waitlist when switching TO waitlist tab
-  useEffect(() => {
-    if (isOpen && unlocked && activeTab === 'waitlist') {
-      loadWaitlist();
-    }
-  }, [isOpen, unlocked, activeTab, loadWaitlist]);
+  }, [isOpen, unlocked]);
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) onClose();
+      if (e.key === "Escape" && isOpen) onClose();
     }
     if (isOpen) {
-      document.addEventListener('keydown', handleEsc);
-      document.body.classList.add('locked');
+      document.addEventListener("keydown", handleEsc);
+      document.body.classList.add("locked");
     }
     return () => {
-      document.removeEventListener('keydown', handleEsc);
-      if (!isOpen) document.body.classList.remove('locked');
+      document.removeEventListener("keydown", handleEsc);
+      if (!isOpen) document.body.classList.remove("locked");
     };
   }, [isOpen, onClose]);
 
@@ -109,65 +116,34 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
     if (hash === ADMIN_HASH) {
       setUnlocked(true);
       setPinError(false);
-      loadMembers();
-      loadWaitlist();
-      setLuts(getLuts());
-      loadVideos();
+      setAdminPin(pin);
     } else {
       setPinError(true);
-      setPin('');
+      setPin("");
     }
   }
 
-  // ── Upload video as base64 data URL (persists across devices) ──
-  function handleUpload(lutId: string, file: File) {
-    setUploadError('');
-
-    // Warn about large files — localStorage typically has 5-10MB total quota
-    if (file.size > 2 * 1024 * 1024) {
-      if (!window.confirm(`This video is ${(file.size / 1024 / 1024).toFixed(1)}MB. Large videos may fail to save due to browser storage limits. Continue anyway?`)) {
-        return;
-      }
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      if (dataUrl) {
-        try {
-          saveVideo(lutId, dataUrl, file.name);
-          // Refresh from IndexedDB (async) to update UI
-          loadVideos();
-          // Reset file input so the same file can be selected again
-          const inputEl = fileInputRefs.current[lutId];
-          if (inputEl) inputEl.value = '';
-        } catch (err) {
-          setUploadError(`Failed to save video: ${err instanceof Error ? err.message : 'Storage quota exceeded. Try a smaller video.'}`);
-        }
-      }
-    };
-    reader.onerror = () => {
-      setUploadError('Failed to read video file. Please try again.');
-    };
-    reader.readAsDataURL(file);
+  function handleClose() {
+    clearAdminPin();
+    setUnlocked(false);
+    onClose();
   }
 
-  function handleDeleteVideo(lutId: string) {
-    if (window.confirm('Remove this video?')) {
-      removeVideo(lutId);
-      loadVideos();
-    }
-  }
-
-  function startEdit(lut: LutData) {
-    setEditingLut(lut.id);
-    setEditForm({ ...lut });
+  // ── LUT Editing ──
+  function startEdit(lut: (typeof luts)[0]) {
+    setEditingLut(lut.lutId);
+    setEditForm({
+      name: lut.name,
+      tag: lut.tag,
+      description: lut.description,
+      icon: lut.icon,
+      gradient: lut.gradient,
+    });
   }
 
   function saveEdit() {
     if (!editingLut || !editForm) return;
-    updateLut(editingLut, editForm);
-    setLuts(getLuts());
+    updateLut.mutate({ lutId: editingLut, ...editForm });
     setEditingLut(null);
     setEditForm({});
   }
@@ -177,89 +153,199 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
     setEditForm({});
   }
 
-  function resetLuts() {
-    if (window.confirm('Reset all LUTs to default values? This cannot be undone.')) {
-      saveLuts([...DEFAULT_LUTS]);
-      setLuts([...DEFAULT_LUTS]);
+  // ── LUT Creation ──
+  function handleCreateLut() {
+    if (
+      !createForm.lutId ||
+      !createForm.name ||
+      !createForm.tag ||
+      !createForm.description ||
+      !createForm.icon ||
+      !createForm.gradient
+    ) {
+      setUploadError("Please fill in all fields.");
+      return;
     }
+    if (!/^[a-z0-9-]+$/.test(createForm.lutId)) {
+      setUploadError(
+        "LUT ID must be lowercase letters, numbers, and hyphens only (no spaces)."
+      );
+      return;
+    }
+    createLut.mutate(createForm);
+    setCreateForm({ lutId: "", name: "", tag: "", description: "", icon: "", gradient: "" });
+    setShowCreateForm(false);
+    setUploadError("");
+  }
+
+  // ── Video Upload ──
+  function handleUpload(lutId: string, file: File) {
+    setUploadError("");
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadError("Video must be under 50MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        uploadVideo.mutate({ lutId, dataUrl, fileName: file.name });
+        const inputEl = fileInputRefs.current[lutId];
+        if (inputEl) inputEl.value = "";
+      }
+    };
+    reader.onerror = () => setUploadError("Failed to read video file.");
+    reader.readAsDataURL(file);
+  }
+
+  // ── Hero Image Upload ──
+  function handleHeroUpload(slot: number, file: File) {
+    setUploadError("");
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("Image must be under 10MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      if (dataUrl) {
+        updateHero.mutate({ slot, base64Data: dataUrl });
+      }
+    };
+    reader.onerror = () => setUploadError("Failed to read image file.");
+    reader.readAsDataURL(file);
   }
 
   const inputStyle = {
-    background: 'var(--input-bg)' as string,
-    border: '1px solid var(--border)',
-    color: 'var(--text)' as string,
+    background: "var(--input-bg)" as string,
+    border: "1px solid var(--border)",
+    color: "var(--text)" as string,
     fontFamily: "'DM Sans', sans-serif",
   };
 
   return (
     <div
       ref={overlayRef}
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      onClick={(e) => {
+        if (e.target === overlayRef.current) handleClose();
+      }}
       className="fixed inset-0 flex items-center justify-center px-4 transition-opacity duration-350"
       style={{
-        background: 'var(--overlay-bg)',
-        backdropFilter: 'blur(8px)',
+        background: "var(--overlay-bg)",
+        backdropFilter: "blur(8px)",
         zIndex: 700,
         opacity: isOpen ? 1 : 0,
-        pointerEvents: isOpen ? 'all' : 'none',
+        pointerEvents: isOpen ? "all" : "none",
       }}
     >
       <div
-        className="w-full max-w-[600px] max-h-[90vh] overflow-y-auto relative transition-all duration-350"
+        className="w-full max-w-[640px] max-h-[90vh] overflow-y-auto relative transition-all duration-350"
         style={{
-          background: 'var(--popup-bg)',
-          border: '1px solid var(--popup-border)',
-          borderRadius: '8px',
-          padding: 'clamp(24px, 5vw, 40px)',
-          boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
+          background: "var(--popup-bg)",
+          border: "1px solid var(--popup-border)",
+          borderRadius: "8px",
+          padding: "clamp(24px, 5vw, 40px)",
+          boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
         }}
       >
         {/* Close */}
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 bg-transparent border-none cursor-pointer transition-colors duration-200"
-          style={{ color: 'var(--muted)', fontSize: '20px' }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
+          style={{ color: "var(--muted)", fontSize: "20px" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--muted)")}
         >
           ✕
         </button>
 
-        <h2 className="font-display text-[clamp(22px,4vw,28px)] font-light mb-1.5" style={{ color: 'var(--text)' }}>
+        <h2
+          className="font-display text-[clamp(22px,4vw,28px)] font-light mb-1.5"
+          style={{ color: "var(--text)" }}
+        >
           Admin Panel
         </h2>
-        <p className="text-[12px] mb-5" style={{ color: 'var(--muted)', letterSpacing: '0.5px' }}>
-          Manage LUTs, videos, members and waitlist.
+        <p
+          className="text-[12px] mb-5"
+          style={{ color: "var(--muted)", letterSpacing: "0.5px" }}
+        >
+          Manage LUTs, videos, members, waitlist and hero images.
         </p>
+
+        {/* Messages */}
+        {successMsg && (
+          <div
+            className="mb-4 p-3 rounded-[4px] text-[12px] text-center"
+            style={{
+              background: "rgba(106,184,122,0.1)",
+              border: "1px solid rgba(106,184,122,0.3)",
+              color: "#6ab87a",
+            }}
+          >
+            {successMsg}
+          </div>
+        )}
+        {uploadError && (
+          <div
+            className="mb-4 p-3 rounded-[4px] text-[12px]"
+            style={{
+              background: "rgba(224,85,85,0.15)",
+              border: "1px solid rgba(224,85,85,0.3)",
+              color: "#e05555",
+            }}
+          >
+            {uploadError}
+          </div>
+        )}
 
         {/* Lock Screen */}
         {!unlocked && (
           <div className="text-center py-5">
-            <p className="text-[14px] mb-4" style={{ color: 'var(--subtext)' }}>Enter your admin password to continue.</p>
+            <p className="text-[14px] mb-4" style={{ color: "var(--subtext)" }}>
+              Enter your admin password to continue.
+            </p>
             <div className="flex items-center gap-3 mt-4">
               <input
                 ref={pinInputRef}
                 type="password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && checkPin()}
+                onKeyDown={(e) => e.key === "Enter" && checkPin()}
                 placeholder="Admin password"
                 className="flex-1 rounded-[4px] px-3.5 py-2.5 text-[14px] outline-none transition-colors duration-200"
                 style={inputStyle}
-                onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'}
-                onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
+                onFocus={(e) =>
+                  (e.currentTarget.style.borderColor = "var(--amber)")
+                }
+                onBlur={(e) =>
+                  (e.currentTarget.style.borderColor = "var(--border)")
+                }
               />
               <button
                 onClick={checkPin}
                 className="rounded-[4px] px-5 py-2.5 text-[12px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200"
-                style={{ background: 'var(--amber)', color: '#080808', fontFamily: "'DM Sans', sans-serif" }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#daa85a'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--amber)'}
+                style={{
+                  background: "var(--amber)",
+                  color: "#080808",
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "#daa85a")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "var(--amber)")
+                }
               >
                 Unlock
               </button>
             </div>
-            {pinError && <p className="text-[12px] mt-2.5" style={{ color: 'var(--error)' }}>Incorrect password. Access denied.</p>}
+            {pinError && (
+              <p className="text-[12px] mt-2.5" style={{ color: "var(--error)" }}>
+                Incorrect password. Access denied.
+              </p>
+            )}
           </div>
         )}
 
@@ -267,164 +353,560 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
         {unlocked && (
           <>
             {/* Tabs */}
-            <div className="flex gap-0 mb-6 rounded-[4px] overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              <button
-                onClick={() => { setActiveTab('luts'); setUploadError(''); }}
-                className="flex-1 py-2.5 text-[12px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border-none"
-                style={{ background: activeTab === 'luts' ? 'var(--amber)' : 'transparent', color: activeTab === 'luts' ? '#080808' : 'var(--subtext)', fontFamily: "'DM Sans', sans-serif" }}
-              >
-                LUT Library
-              </button>
-              <button
-                onClick={() => { setActiveTab('members'); setUploadError(''); }}
-                className="flex-1 py-2.5 text-[12px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border-none"
-                style={{ background: activeTab === 'members' ? 'var(--amber)' : 'transparent', color: activeTab === 'members' ? '#080808' : 'var(--subtext)', fontFamily: "'DM Sans', sans-serif" }}
-              >
-                Members ({members.length})
-              </button>
-              <button
-                onClick={() => { setActiveTab('waitlist'); setUploadError(''); }}
-                className="flex-1 py-2.5 text-[12px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border-none"
-                style={{ background: activeTab === 'waitlist' ? 'var(--amber)' : 'transparent', color: activeTab === 'waitlist' ? '#080808' : 'var(--subtext)', fontFamily: "'DM Sans', sans-serif" }}
-              >
-                Waitlist ({waitlist.length})
-              </button>
+            <div
+              className="flex gap-0 mb-6 rounded-[4px] overflow-hidden"
+              style={{ border: "1px solid var(--border)" }}
+            >
+              {(["luts", "members", "waitlist", "hero"] as const).map(
+                (tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => {
+                      setActiveTab(tab);
+                      setUploadError("");
+                    }}
+                    className="flex-1 py-2.5 text-[11px] font-medium tracking-[0.5px] uppercase cursor-pointer transition-colors duration-200 border-none"
+                    style={{
+                      background:
+                        activeTab === tab ? "var(--amber)" : "transparent",
+                      color:
+                        activeTab === tab ? "#080808" : "var(--subtext)",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    {tab === "luts" && "LUTs"}
+                    {tab === "members" && `Members (${members.length})`}
+                    {tab === "waitlist" && `Waitlist (${waitlistEntries.length})`}
+                    {tab === "hero" && "Hero Images"}
+                  </button>
+                )
+              )}
             </div>
 
-            {/* Upload error banner */}
-            {uploadError && (
-              <div className="mb-4 p-3 rounded-[4px] text-[12px]" style={{ background: 'rgba(224,85,85,0.15)', border: '1px solid rgba(224,85,85,0.3)', color: '#e05555' }}>
-                {uploadError}
-              </div>
-            )}
-
             {/* ─── LUTS TAB ─── */}
-            {activeTab === 'luts' && (
+            {activeTab === "luts" && (
               <>
-                <div className="flex items-center justify-between mb-3 px-1">
-                  <p className="text-[10px] tracking-[1px]" style={{ color: 'var(--muted)' }}>
-                    Video storage: <strong style={{ color: 'var(--amber)' }}>{storageSize.toFixed(1)} MB</strong> used (IndexedDB)
-                  </p>
-                  <p className="text-[10px] tracking-[1px]" style={{ color: 'var(--muted)' }}>
-                    Max per video: ~50 MB
-                  </p>
+                {/* Create LUT button */}
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    onClick={() => setShowCreateForm(!showCreateForm)}
+                    className="rounded-[4px] px-4 py-2 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer transition-all duration-200 border"
+                    style={{
+                      borderColor: "var(--amber-dim)",
+                      color: "var(--amber)",
+                      background: "transparent",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "var(--amber)";
+                      e.currentTarget.style.color = "#080808";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = "var(--amber)";
+                    }}
+                  >
+                    {showCreateForm ? "✕ Cancel" : "+ Create LUT"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "Reset all LUTs to defaults? This will remove any custom LUTs and videos."
+                        )
+                      )
+                        resetLuts.mutate();
+                    }}
+                    className="rounded-[4px] px-3 py-1.5 text-[10px] font-medium tracking-[0.5px] uppercase cursor-pointer transition-all duration-200 border"
+                    style={{
+                      borderColor: "var(--border)",
+                      color: "var(--muted)",
+                      background: "transparent",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--error)";
+                      e.currentTarget.style.color = "var(--error)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border)";
+                      e.currentTarget.style.color = "var(--muted)";
+                    }}
+                  >
+                    ↺ Reset Defaults
+                  </button>
                 </div>
-                {luts.map((lut) => {
-                  const vid = videos[lut.id];
-                  const hasVideo = !!vid;
 
+                {/* Create LUT Form */}
+                {showCreateForm && (
+                  <div
+                    className="mb-6 p-4 rounded-[6px]"
+                    style={{
+                      background: "var(--input-bg)",
+                      border: "1px solid var(--how-border)",
+                    }}
+                  >
+                    <p
+                      className="text-[10px] tracking-[2px] uppercase font-medium mb-3"
+                      style={{ color: "var(--amber)" }}
+                    >
+                      Create New LUT
+                    </p>
+                    <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+                      <div>
+                        <label
+                          className="block text-[10px] tracking-[1px] uppercase mb-1"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          LUT ID (lowercase, no spaces)
+                        </label>
+                        <input
+                          type="text"
+                          value={createForm.lutId}
+                          onChange={(e) =>
+                            setCreateForm((p) => ({
+                              ...p,
+                              lutId: e.target.value.toLowerCase().replace(/\s+/g, "-"),
+                            }))
+                          }
+                          placeholder="e.g. cyber-punk"
+                          className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                          style={inputStyle}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="block text-[10px] tracking-[1px] uppercase mb-1"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Name
+                        </label>
+                        <input
+                          type="text"
+                          value={createForm.name}
+                          onChange={(e) =>
+                            setCreateForm((p) => ({ ...p, name: e.target.value }))
+                          }
+                          placeholder="e.g. Cyber Punk"
+                          className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5 mb-2.5">
+                      <div>
+                        <label
+                          className="block text-[10px] tracking-[1px] uppercase mb-1"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Tag
+                        </label>
+                        <input
+                          type="text"
+                          value={createForm.tag}
+                          onChange={(e) =>
+                            setCreateForm((p) => ({ ...p, tag: e.target.value }))
+                          }
+                          placeholder="e.g. Neon · Futuristic"
+                          className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                          style={inputStyle}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          className="block text-[10px] tracking-[1px] uppercase mb-1"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          Icon (emoji)
+                        </label>
+                        <input
+                          type="text"
+                          value={createForm.icon}
+                          onChange={(e) =>
+                            setCreateForm((p) => ({
+                              ...p,
+                              icon: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. 🤖"
+                          className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                          style={inputStyle}
+                        />
+                      </div>
+                    </div>
+                    <div className="mb-2.5">
+                      <label
+                        className="block text-[10px] tracking-[1px] uppercase mb-1"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        Description
+                      </label>
+                      <textarea
+                        value={createForm.description}
+                        onChange={(e) =>
+                          setCreateForm((p) => ({
+                            ...p,
+                            description: e.target.value,
+                          }))
+                        }
+                        rows={2}
+                        placeholder="Describe the look and feel..."
+                        className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none resize-none"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label
+                        className="block text-[10px] tracking-[1px] uppercase mb-1"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        Gradient CSS
+                      </label>
+                      <input
+                        type="text"
+                        value={createForm.gradient}
+                        onChange={(e) =>
+                          setCreateForm((p) => ({
+                            ...p,
+                            gradient: e.target.value,
+                          }))
+                        }
+                        placeholder="linear-gradient(135deg,#000000,#ffffff)"
+                        className="w-full rounded-[4px] px-3 py-2 text-[11px] outline-none font-mono"
+                        style={inputStyle}
+                      />
+                    </div>
+                    <button
+                      onClick={handleCreateLut}
+                      className="w-full rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer border-none"
+                      style={{
+                        background: "var(--amber)",
+                        color: "#080808",
+                        fontFamily: "'DM Sans', sans-serif",
+                      }}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.background = "#daa85a")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.background = "var(--amber)")
+                      }
+                    >
+                      Create LUT
+                    </button>
+                  </div>
+                )}
+
+                {/* LUT List */}
+                {luts.map((lut) => {
+                  const hasVideo = !!lut.videoUrl;
                   return (
-                    <div key={lut.id} className="py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-                      {/* Header row */}
+                    <div
+                      key={lut.id}
+                      className="py-4"
+                      style={{ borderBottom: "1px solid var(--border)" }}
+                    >
                       <div className="flex items-center gap-4 mb-3">
                         <div
                           className="w-16 h-[46px] rounded-[3px] flex-shrink-0 overflow-hidden flex items-center justify-center text-[14px] relative"
                           style={{ background: lut.gradient }}
                         >
                           {hasVideo ? (
-                            <video src={vid.dataUrl} loop muted playsInline className="w-full h-full object-cover" />
+                            <video
+                              src={lut.videoUrl!}
+                              loop
+                              muted
+                              playsInline
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
                             <span>{lut.icon}</span>
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="font-display text-[16px] truncate" style={{ color: 'var(--text)' }}>{lut.name}</p>
-                          <p className="text-[10px] tracking-[1px] truncate" style={{ color: 'var(--muted)' }}>{lut.tag}</p>
+                          <p
+                            className="font-display text-[16px] truncate"
+                            style={{ color: "var(--text)" }}
+                          >
+                            {lut.name}
+                          </p>
+                          <p
+                            className="text-[10px] tracking-[1px] truncate"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {lut.tag}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {editingLut !== lut.id && (
+                          {editingLut !== lut.lutId && (
                             <button
                               onClick={() => startEdit(lut)}
                               className="rounded-[3px] px-3 py-1.5 text-[10px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border"
-                              style={{ borderColor: 'var(--amber-dim)', color: 'var(--amber)', background: 'transparent', fontFamily: "'DM Sans', sans-serif" }}
-                              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--amber)'; e.currentTarget.style.color = '#080808'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--amber)'; }}
+                              style={{
+                                borderColor: "var(--amber-dim)",
+                                color: "var(--amber)",
+                                background: "transparent",
+                                fontFamily: "'DM Sans', sans-serif",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = "var(--amber)";
+                                e.currentTarget.style.color = "#080808";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = "transparent";
+                                e.currentTarget.style.color = "var(--amber)";
+                              }}
                             >
                               ✎ Edit
                             </button>
                           )}
                           <label
                             className="inline-flex items-center gap-1.5 rounded-[3px] px-3 py-1.5 text-[10px] font-medium tracking-[1px] uppercase cursor-pointer transition-all duration-200 whitespace-nowrap border"
-                            style={{ borderColor: 'var(--amber-dim)', color: 'var(--amber)', fontFamily: "'DM Sans', sans-serif" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--amber)'; e.currentTarget.style.color = '#080808'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--amber)'; }}
+                            style={{
+                              borderColor: "var(--amber-dim)",
+                              color: "var(--amber)",
+                              fontFamily: "'DM Sans', sans-serif",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "var(--amber)";
+                              e.currentTarget.style.color = "#080808";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                              e.currentTarget.style.color = "var(--amber)";
+                            }}
                           >
                             ↑ Upload
                             <input
-                              ref={(el) => { fileInputRefs.current[lut.id] = el; }}
+                              ref={(el) => {
+                                fileInputRefs.current[lut.lutId] = el;
+                              }}
                               type="file"
                               accept="video/*"
                               className="hidden"
-                              onChange={(e) => { const file = e.target.files?.[0]; if (file) handleUpload(lut.id, file); }}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleUpload(lut.lutId, file);
+                              }}
                             />
                           </label>
                           {hasVideo && (
                             <button
-                              onClick={() => handleDeleteVideo(lut.id)}
+                              onClick={() =>
+                                removeVideo.mutate({ lutId: lut.lutId })
+                              }
                               className="rounded-[3px] px-2 py-1.5 text-[10px] font-medium cursor-pointer transition-colors duration-200 border"
-                              style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent', fontFamily: "'DM Sans', sans-serif" }}
-                              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--error)'; e.currentTarget.style.color = 'var(--error)'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}
+                              style={{
+                                borderColor: "var(--border)",
+                                color: "var(--muted)",
+                                background: "transparent",
+                                fontFamily: "'DM Sans', sans-serif",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = "var(--error)";
+                                e.currentTarget.style.color = "var(--error)";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = "var(--border)";
+                                e.currentTarget.style.color = "var(--muted)";
+                              }}
                               title="Delete video"
                             >
                               🗑
                             </button>
                           )}
+                          <button
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Delete "${lut.name}"? This cannot be undone.`
+                                )
+                              )
+                                deleteLut.mutate({ lutId: lut.lutId });
+                            }}
+                            className="rounded-[3px] px-2 py-1.5 text-[10px] font-medium cursor-pointer transition-colors duration-200 border"
+                            style={{
+                              borderColor: "var(--border)",
+                              color: "#e05555",
+                              background: "transparent",
+                              fontFamily: "'DM Sans', sans-serif",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "rgba(224,85,85,0.1)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                            }}
+                            title="Delete LUT"
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
 
-                      {/* Status */}
-                      <p className="text-[10px] tracking-[1px] mb-2" style={{ color: hasVideo ? '#6ab87a' : 'var(--muted)' }}>
-                        {hasVideo ? `✓ Video: ${vid.fileName}` : 'No video uploaded'}
+                      <p
+                        className="text-[10px] tracking-[1px] mb-2"
+                        style={{ color: hasVideo ? "#6ab87a" : "var(--muted)" }}
+                      >
+                        {hasVideo
+                          ? `✓ Video uploaded (${lut.videoUrl?.split("/").pop()})`
+                          : "No video uploaded"}
                       </p>
 
                       {/* Edit Form */}
-                      {editingLut === lut.id && (
-                        <div className="mt-3 p-4 rounded-[6px]" style={{ background: 'var(--input-bg)', border: '1px solid var(--how-border)' }}>
-                          <p className="text-[10px] tracking-[2px] uppercase font-medium mb-3" style={{ color: 'var(--amber)' }}>Edit LUT</p>
-
+                      {editingLut === lut.lutId && (
+                        <div
+                          className="mt-3 p-4 rounded-[6px]"
+                          style={{
+                            background: "var(--input-bg)",
+                            border: "1px solid var(--how-border)",
+                          }}
+                        >
+                          <p
+                            className="text-[10px] tracking-[2px] uppercase font-medium mb-3"
+                            style={{ color: "var(--amber)" }}
+                          >
+                            Edit LUT
+                          </p>
                           <div className="grid grid-cols-2 gap-2.5 mb-2.5">
                             <div>
-                              <label className="block text-[10px] tracking-[1px] uppercase mb-1" style={{ color: 'var(--muted)' }}>Name</label>
-                              <input type="text" value={editForm.name || ''} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none transition-colors duration-200" style={inputStyle} onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'} onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'} />
+                              <label
+                                className="block text-[10px] tracking-[1px] uppercase mb-1"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                Name
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.name || ""}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    name: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                                style={inputStyle}
+                              />
                             </div>
                             <div>
-                              <label className="block text-[10px] tracking-[1px] uppercase mb-1" style={{ color: 'var(--muted)' }}>Tag</label>
-                              <input type="text" value={editForm.tag || ''} onChange={(e) => setEditForm((prev) => ({ ...prev, tag: e.target.value }))} className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none transition-colors duration-200" style={inputStyle} onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'} onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'} />
+                              <label
+                                className="block text-[10px] tracking-[1px] uppercase mb-1"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                Tag
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.tag || ""}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    tag: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                                style={inputStyle}
+                              />
                             </div>
                           </div>
-
                           <div className="mb-2.5">
-                            <label className="block text-[10px] tracking-[1px] uppercase mb-1" style={{ color: 'var(--muted)' }}>Description</label>
-                            <textarea value={editForm.desc || ''} onChange={(e) => setEditForm((prev) => ({ ...prev, desc: e.target.value }))} rows={3} className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none transition-colors duration-200 resize-none" style={inputStyle} onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'} onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'} />
+                            <label
+                              className="block text-[10px] tracking-[1px] uppercase mb-1"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              Description
+                            </label>
+                            <textarea
+                              value={editForm.description || ""}
+                              onChange={(e) =>
+                                setEditForm((p) => ({
+                                  ...p,
+                                  description: e.target.value,
+                                }))
+                              }
+                              rows={3}
+                              className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none resize-none"
+                              style={inputStyle}
+                            />
                           </div>
-
                           <div className="grid grid-cols-2 gap-2.5 mb-4">
                             <div>
-                              <label className="block text-[10px] tracking-[1px] uppercase mb-1" style={{ color: 'var(--muted)' }}>Icon (emoji)</label>
-                              <input type="text" value={editForm.icon || ''} onChange={(e) => setEditForm((prev) => ({ ...prev, icon: e.target.value }))} className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none transition-colors duration-200" style={inputStyle} onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'} onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'} />
+                              <label
+                                className="block text-[10px] tracking-[1px] uppercase mb-1"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                Icon (emoji)
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.icon || ""}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    icon: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-[4px] px-3 py-2 text-[13px] outline-none"
+                                style={inputStyle}
+                              />
                             </div>
                             <div>
-                              <label className="block text-[10px] tracking-[1px] uppercase mb-1" style={{ color: 'var(--muted)' }}>Gradient CSS</label>
-                              <input type="text" value={editForm.gradient || ''} onChange={(e) => setEditForm((prev) => ({ ...prev, gradient: e.target.value }))} className="w-full rounded-[4px] px-3 py-2 text-[11px] outline-none transition-colors duration-200 font-mono" style={inputStyle} onFocus={(e) => e.currentTarget.style.borderColor = 'var(--amber)'} onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border)'} />
+                              <label
+                                className="block text-[10px] tracking-[1px] uppercase mb-1"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                Gradient CSS
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.gradient || ""}
+                                onChange={(e) =>
+                                  setEditForm((p) => ({
+                                    ...p,
+                                    gradient: e.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-[4px] px-3 py-2 text-[11px] outline-none font-mono"
+                                style={inputStyle}
+                              />
                             </div>
                           </div>
-
-                          <div className="flex items-center gap-3 mb-4 p-3 rounded-[4px]" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)' }}>
-                            <div className="w-16 h-[46px] rounded-[3px] flex items-center justify-center text-[14px]" style={{ background: editForm.gradient || lut.gradient }}>
-                              <span>{editForm.icon || lut.icon}</span>
-                            </div>
-                            <div>
-                              <p className="font-display text-[14px]" style={{ color: 'var(--text)' }}>{editForm.name || lut.name}</p>
-                              <p className="text-[10px]" style={{ color: 'var(--muted)' }}>{editForm.tag || lut.tag}</p>
-                            </div>
-                          </div>
-
                           <div className="flex gap-2">
-                            <button onClick={saveEdit} className="flex-1 rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border-none" style={{ background: 'var(--amber)', color: '#080808', fontFamily: "'DM Sans', sans-serif" }} onMouseEnter={(e) => e.currentTarget.style.background = '#daa85a'} onMouseLeave={(e) => e.currentTarget.style.background = 'var(--amber)'}>
+                            <button
+                              onClick={saveEdit}
+                              className="flex-1 rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer border-none"
+                              style={{
+                                background: "var(--amber)",
+                                color: "#080808",
+                                fontFamily: "'DM Sans', sans-serif",
+                              }}
+                              onMouseEnter={(e) =>
+                                (e.currentTarget.style.background = "#daa85a")
+                              }
+                              onMouseLeave={(e) =>
+                                (e.currentTarget.style.background = "var(--amber)")
+                              }
+                            >
                               Save Changes
                             </button>
-                            <button onClick={cancelEdit} className="flex-1 rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border" style={{ borderColor: 'var(--border)', color: 'var(--subtext)', background: 'transparent', fontFamily: "'DM Sans', sans-serif" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--error)'; e.currentTarget.style.color = 'var(--error)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--subtext)'; }}>
+                            <button
+                              onClick={cancelEdit}
+                              className="flex-1 rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer border"
+                              style={{
+                                borderColor: "var(--border)",
+                                color: "var(--subtext)",
+                                background: "transparent",
+                                fontFamily: "'DM Sans', sans-serif",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = "var(--error)";
+                                e.currentTarget.style.color = "var(--error)";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = "var(--border)";
+                                e.currentTarget.style.color = "var(--subtext)";
+                              }}
+                            >
                               Cancel
                             </button>
                           </div>
@@ -433,50 +915,117 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
                     </div>
                   );
                 })}
-
-                {/* Reset button */}
-                <button onClick={resetLuts} className="mt-4 w-full rounded-[4px] py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer transition-colors duration-200 border" style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent', fontFamily: "'DM Sans', sans-serif" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--error)'; e.currentTarget.style.color = 'var(--error)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}>
-                  ↺ Reset All LUTs to Defaults
-                </button>
               </>
             )}
 
             {/* ─── MEMBERS TAB ─── */}
-            {activeTab === 'members' && (
+            {activeTab === "members" && (
               <div className="mt-2">
-                <div className="mb-3 p-3 rounded-[4px]" style={{ background: 'rgba(200,146,74,0.08)', border: '1px solid var(--amber-dim)' }}>
-                  <p className="text-[10px] tracking-[0.5px] leading-[1.6]" style={{ color: 'var(--subtext)' }}>
-                    <strong style={{ color: 'var(--amber)' }}>Note:</strong> Data is stored locally in each browser. Members who join on other devices will not appear here until a backend is added.
-                  </p>
-                </div>
-                <p className="text-[11px] tracking-[1px] mb-3" style={{ color: 'var(--amber)' }}>
-                  {members.length} member{members.length !== 1 ? 's' : ''} registered on this device
+                <p
+                  className="text-[11px] tracking-[1px] mb-3"
+                  style={{ color: "var(--amber)" }}
+                >
+                  {members.length} member{members.length !== 1 ? "s" : ""}{" "}
+                  registered (from all devices)
                 </p>
                 <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
                   {members.length === 0 ? (
-                    <p className="text-[13px] text-center py-5 italic" style={{ color: 'var(--muted)' }}>
+                    <p
+                      className="text-[13px] text-center py-5 italic"
+                      style={{ color: "var(--muted)" }}
+                    >
                       No members yet. Be patient — they&apos;re coming. 🎞️
                     </p>
                   ) : (
                     [...members].reverse().map((u) => {
-                      const initials = `${(u.firstName || '?')[0]}${(u.lastName || '')[0]}`.toUpperCase();
-                      const date = u.joinedAt ? new Date(u.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-                      const authMethod = u.googleId ? 'Google' : 'Email';
+                      const initials = `${(u.firstName || "?")[0]}${(u.lastName || "")[0]}`.toUpperCase();
+                      const date = u.createdAt
+                        ? new Date(u.createdAt).toLocaleDateString("en-GB", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })
+                        : "—";
+                      const authMethod = u.googleId ? "Google" : "Email";
                       return (
-                        <div key={u.email} className="flex items-center gap-3 px-3 py-2.5 rounded-[4px]" style={{ border: '1px solid var(--border)', background: 'var(--input-bg)' }}>
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-medium" style={{ background: 'var(--amber-dim)', color: '#080808', fontFamily: "'DM Sans', sans-serif" }}>
+                        <div
+                          key={u.id}
+                          className="flex items-center gap-3 px-3 py-2.5 rounded-[4px]"
+                          style={{
+                            border: "1px solid var(--border)",
+                            background: "var(--input-bg)",
+                          }}
+                        >
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-medium"
+                            style={{
+                              background: "var(--amber-dim)",
+                              color: "#080808",
+                              fontFamily: "'DM Sans', sans-serif",
+                            }}
+                          >
                             {initials}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-normal" style={{ color: 'var(--text)' }}>{u.firstName} {u.lastName || ''}</p>
-                            <p className="text-[11px]" style={{ color: 'var(--muted)' }}>{u.email}</p>
+                            <p
+                              className="text-[13px] font-normal"
+                              style={{ color: "var(--text)" }}
+                            >
+                              {u.firstName} {u.lastName || ""}
+                            </p>
+                            <p
+                              className="text-[11px]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {u.email}
+                            </p>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <div className="text-right">
-                              <span className="text-[10px] block" style={{ color: 'var(--muted)' }}>{date}</span>
-                              <span className="text-[9px] tracking-[0.5px]" style={{ color: u.googleId ? '#4285F4' : 'var(--amber-dim)' }}>✓ {authMethod}</span>
+                              <span
+                                className="text-[10px] block"
+                                style={{ color: "var(--muted)" }}
+                              >
+                                {date}
+                              </span>
+                              <span
+                                className="text-[9px] tracking-[0.5px]"
+                                style={{
+                                  color: u.googleId ? "#4285F4" : "var(--amber-dim)",
+                                }}
+                              >
+                                ✓ {authMethod}
+                              </span>
                             </div>
-                            <button onClick={() => { if (window.confirm(`Remove ${u.firstName} ${u.lastName || ''} (${u.email})? This cannot be undone.`)) { removeUser(u.email); loadMembers(); } }} className="ml-1 rounded-[3px] px-2 py-1 text-[10px] font-medium tracking-[0.5px] uppercase cursor-pointer transition-all duration-200 border" style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'transparent', fontFamily: "'DM Sans', sans-serif" }} onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--error)'; e.currentTarget.style.color = 'var(--error)'; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }} title="Remove member">✕</button>
+                            <button
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Remove ${u.firstName} ${u.lastName || ""} (${u.email})? This cannot be undone.`
+                                  )
+                                ) {
+                                  removeUser.mutate({ email: u.email });
+                                }
+                              }}
+                              className="ml-1 rounded-[3px] px-2 py-1 text-[10px] font-medium tracking-[0.5px] uppercase cursor-pointer transition-all duration-200 border"
+                              style={{
+                                borderColor: "var(--border)",
+                                color: "var(--muted)",
+                                background: "transparent",
+                                fontFamily: "'DM Sans', sans-serif",
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = "var(--error)";
+                                e.currentTarget.style.color = "var(--error)";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = "var(--border)";
+                                e.currentTarget.style.color = "var(--muted)";
+                              }}
+                              title="Remove member"
+                            >
+                              ✕
+                            </button>
                           </div>
                         </div>
                       );
@@ -487,30 +1036,155 @@ export default function AdminPanel({ isOpen, onClose }: AdminPanelProps) {
             )}
 
             {/* ─── WAITLIST TAB ─── */}
-            {activeTab === 'waitlist' && (
+            {activeTab === "waitlist" && (
               <div className="mt-2">
-                <div className="mb-3 p-3 rounded-[4px]" style={{ background: 'rgba(200,146,74,0.08)', border: '1px solid var(--amber-dim)' }}>
-                  <p className="text-[10px] tracking-[0.5px] leading-[1.6]" style={{ color: 'var(--subtext)' }}>
-                    <strong style={{ color: 'var(--amber)' }}>Note:</strong> Waitlist is stored locally per browser. Signups from other devices will not appear here until a backend is added.
-                  </p>
-                </div>
-                <p className="text-[11px] tracking-[1px] mb-3" style={{ color: 'var(--amber)' }}>
-                  {waitlist.length} early access signup{waitlist.length !== 1 ? 's' : ''} on this device
+                <p
+                  className="text-[11px] tracking-[1px] mb-3"
+                  style={{ color: "var(--amber)" }}
+                >
+                  {waitlistEntries.length} early access signup
+                  {waitlistEntries.length !== 1 ? "s" : ""} (from all
+                  devices)
                 </p>
-                <p className="text-[12px] mb-4" style={{ color: 'var(--subtext)' }}>
-                  These emails are also sent to <strong style={{ color: 'var(--text)' }}>nehan.apex@gmail.com</strong> via EmailJS.
+                <p className="text-[12px] mb-4" style={{ color: "var(--subtext)" }}>
+                  These are synced to the Supabase database and visible across all
+                  devices.
                 </p>
                 <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto">
-                  {waitlist.length === 0 ? (
-                    <p className="text-[13px] text-center py-5 italic" style={{ color: 'var(--muted)' }}>No early access signups yet.</p>
+                  {waitlistEntries.length === 0 ? (
+                    <p
+                      className="text-[13px] text-center py-5 italic"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      No early access signups yet.
+                    </p>
                   ) : (
-                    [...waitlist].reverse().map((email, i) => (
-                      <div key={email} className="flex items-center gap-3 px-3 py-2.5 rounded-[4px]" style={{ border: '1px solid var(--border)', background: 'var(--input-bg)' }}>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-medium" style={{ background: 'var(--amber-dim)', color: '#080808', fontFamily: "'DM Sans', sans-serif" }}>{waitlist.length - i}</div>
-                        <p className="text-[13px] font-normal flex-1" style={{ color: 'var(--text)' }}>{email}</p>
+                    [...waitlistEntries].reverse().map((entry, i) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-[4px]"
+                        style={{
+                          border: "1px solid var(--border)",
+                          background: "var(--input-bg)",
+                        }}
+                      >
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-medium"
+                          style={{
+                            background: "var(--amber-dim)",
+                            color: "#080808",
+                            fontFamily: "'DM Sans', sans-serif",
+                          }}
+                        >
+                          {waitlistEntries.length - i}
+                        </div>
+                        <p
+                          className="text-[13px] font-normal flex-1"
+                          style={{ color: "var(--text)" }}
+                        >
+                          {entry.email}
+                        </p>
                       </div>
                     ))
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ─── HERO IMAGES TAB ─── */}
+            {activeTab === "hero" && (
+              <div className="mt-2">
+                <p
+                  className="text-[11px] tracking-[1px] mb-4"
+                  style={{ color: "var(--amber)" }}
+                >
+                  Edit the two hero carousel images
+                </p>
+                <div className="flex flex-col gap-6">
+                  {[1, 2].map((slot) => {
+                    const img = heroImages.find((h) => h.slot === slot);
+                    return (
+                      <div
+                        key={slot}
+                        className="p-4 rounded-[6px]"
+                        style={{
+                          background: "var(--input-bg)",
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <p
+                          className="text-[10px] tracking-[2px] uppercase font-medium mb-3"
+                          style={{ color: "var(--amber)" }}
+                        >
+                          Slide {slot}
+                        </p>
+
+                        {/* Current image preview */}
+                        <div
+                          className="w-full h-[140px] rounded-[4px] mb-3 overflow-hidden flex items-center justify-center"
+                          style={{
+                            background: img
+                              ? "transparent"
+                              : "var(--card-bg)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          {img?.imageUrl ? (
+                            <img
+                              src={img.imageUrl}
+                              alt={`Slide ${slot}`}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span
+                              className="text-[12px]"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              No image set — upload below
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Upload */}
+                        <label
+                          className="flex items-center justify-center gap-2 w-full rounded-[4px] px-3 py-2.5 text-[11px] font-medium tracking-[1px] uppercase cursor-pointer transition-all duration-200 border mb-2"
+                          style={{
+                            borderColor: "var(--amber-dim)",
+                            color: "var(--amber)",
+                            fontFamily: "'DM Sans', sans-serif",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "var(--amber)";
+                            e.currentTarget.style.color = "#080808";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                            e.currentTarget.style.color = "var(--amber)";
+                          }}
+                        >
+                          📷 Upload New Image
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleHeroUpload(slot, file);
+                            }}
+                          />
+                        </label>
+
+                        {img?.imageUrl && (
+                          <p
+                            className="text-[10px] break-all"
+                            style={{ color: "var(--muted)" }}
+                          >
+                            {img.imageUrl}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

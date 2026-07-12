@@ -13,6 +13,10 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,
+      headers() {
+        const pin = localStorage.getItem("lc_admin_pin") ?? "";
+        return pin ? { "x-admin-pin": pin } : {};
+      },
       fetch(input, init) {
         return globalThis.fetch(input, {
           ...(init ?? {}),

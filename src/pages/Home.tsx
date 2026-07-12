@@ -1,5 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
-import { getSession, clearSession, signOutUser, KICKOUT_EVENT, isSessionValid } from '@/lib/auth';
+import {
+  getSession,
+  clearSession,
+  signOutUser,
+  KICKOUT_EVENT,
+  clearLogoutFlag,
+  hasLogoutFlag,
+  clearAdminPin,
+} from '@/lib/auth';
+import { trpc } from '@/providers/trpc';
 import GateOverlay from '@/components/GateOverlay';
 import Navigation from '@/components/Navigation';
 import AdminPanel from '@/components/AdminPanel';
@@ -9,24 +18,38 @@ import LutLibrary from '@/sections/LutLibrary';
 import Waitlist from '@/sections/Waitlist';
 import Footer from '@/sections/Footer';
 
-const LOGOUT_KEY = 'lc_logout';
-
 export default function Home() {
   const [gateDismissed, setGateDismissed] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [authKey, setAuthKey] = useState(0);
   const [kickedOut, setKickedOut] = useState(false);
 
-  // Check if user just logged out (show login form, not signup)
-  const justLoggedOut = localStorage.getItem(LOGOUT_KEY) === '1';
+  const justLoggedOut = hasLogoutFlag();
 
   const session = getSession();
   const isAuthenticated = !!session?.email;
   const isAdmin = session?.email === 'nehan.apex@gmail.com';
 
+  // Validate session against database
+  const { data: dbUser } = trpc.user.findByEmail.useQuery(
+    { email: session?.email ?? '' },
+    { enabled: !!session?.email }
+  );
+  const removeUser = trpc.user.remove.useMutation();
+
+  // Kick out if user was removed from DB
+  useEffect(() => {
+    if (session?.email && dbUser === null) {
+      clearSession();
+      clearLogoutFlag();
+      setKickedOut(true);
+      setGateDismissed(false);
+      setAuthKey((k) => k + 1);
+    }
+  }, [dbUser, session?.email]);
+
   const handleAuthenticated = useCallback(() => {
-    // Clear logout flag on successful auth
-    localStorage.removeItem(LOGOUT_KEY);
+    clearLogoutFlag();
     setKickedOut(false);
     setGateDismissed(true);
     setAuthKey((k) => k + 1);
@@ -35,22 +58,25 @@ export default function Home() {
   // Log Out: clear session, set flag to show login form on return
   const handleLogOut = useCallback(() => {
     clearSession();
-    localStorage.setItem(LOGOUT_KEY, '1');
+    clearAdminPin();
+    localStorage.setItem('lc_logout', '1');
     window.location.reload();
   }, []);
 
-  // Sign Out: remove user from DB entirely, show signup form on return
-  const handleSignOut = useCallback(() => {
+  // Sign Out: remove user from DB entirely
+  const handleSignOut = useCallback(async () => {
     const currentSession = getSession();
     if (currentSession?.email) {
+      // Remove from Supabase DB
+      try { await removeUser.mutateAsync({ email: currentSession.email }); } catch { /* ignore */ }
       signOutUser(currentSession.email);
     } else {
       clearSession();
     }
-    // Remove logout flag so signup form shows (not login)
-    localStorage.removeItem(LOGOUT_KEY);
+    clearAdminPin();
+    localStorage.removeItem('lc_logout');
     window.location.reload();
-  }, []);
+  }, [removeUser]);
 
   // ── Real-time kick-out: listen for admin removal across tabs ──
   useEffect(() => {
@@ -58,9 +84,13 @@ export default function Home() {
       if (e.key === KICKOUT_EVENT && e.newValue) {
         const removedEmail = e.newValue;
         const currentSession = getSession();
-        if (currentSession && currentSession.email.toLowerCase() === removedEmail.toLowerCase()) {
+        if (
+          currentSession &&
+          currentSession.email.toLowerCase() === removedEmail.toLowerCase()
+        ) {
           clearSession();
-          localStorage.removeItem(LOGOUT_KEY);
+          clearAdminPin();
+          localStorage.removeItem('lc_logout');
           setKickedOut(true);
           setGateDismissed(false);
           setAuthKey((k) => k + 1);
@@ -71,20 +101,12 @@ export default function Home() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  // ── Periodic session validation ──
+  // Auto-dismiss gate if session exists and user is in DB
   useEffect(() => {
-    if (!gateDismissed) return;
-    const interval = setInterval(() => {
-      if (!isSessionValid()) {
-        clearSession();
-        localStorage.removeItem(LOGOUT_KEY);
-        setKickedOut(true);
-        setGateDismissed(false);
-        setAuthKey((k) => k + 1);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [gateDismissed]);
+    if (session?.email && dbUser && !gateDismissed && !kickedOut) {
+      setGateDismissed(true);
+    }
+  }, [session?.email, dbUser, gateDismissed, kickedOut]);
 
   return (
     <>
@@ -104,7 +126,8 @@ export default function Home() {
         className="fixed inset-0 pointer-events-none"
         style={{
           zIndex: 9998,
-          background: 'radial-gradient(ellipse at center, transparent 55%, var(--vignette) 100%)',
+          background:
+            'radial-gradient(ellipse at center, transparent 55%, var(--vignette) 100%)',
         }}
       />
 
@@ -121,7 +144,12 @@ export default function Home() {
       <AdminPanel isOpen={adminOpen} onClose={() => setAdminOpen(false)} />
 
       {/* Main Content */}
-      <div style={{ opacity: gateDismissed && !kickedOut ? 1 : 0, transition: 'opacity 0.5s ease' }}>
+      <div
+        style={{
+          opacity: gateDismissed && !kickedOut ? 1 : 0,
+          transition: 'opacity 0.5s ease',
+        }}
+      >
         <Navigation
           key={authKey}
           onOpenAdmin={() => setAdminOpen(true)}

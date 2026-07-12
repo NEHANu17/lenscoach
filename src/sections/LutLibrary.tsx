@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getLuts, getVideos, type LutData } from '@/lib/auth';
+import { trpc } from '@/providers/trpc';
 import VideoViewer from '@/components/VideoViewer';
 
 const HOLD_DURATION = 600;
 
+interface DisplayLut {
+  id: string;
+  name: string;
+  tag: string;
+  desc: string;
+  icon: string;
+  gradient: string;
+  videoUrl?: string | null;
+}
+
 export default function LutLibrary() {
   const sectionRef = useRef<HTMLDivElement>(null);
-  const [luts, setLuts] = useState<LutData[]>(getLuts());
   const [viewerOpen, setViewerOpen] = useState(false);
-  const [viewerLut, setViewerLut] = useState<LutData | null>(null);
+  const [viewerLut, setViewerLut] = useState<DisplayLut | null>(null);
   const [playingCards, setPlayingCards] = useState<Record<string, boolean>>({});
   const [holdingCards, setHoldingCards] = useState<Record<string, boolean>>({});
   const [videoLoaded, setVideoLoaded] = useState<Record<string, boolean>>({});
@@ -16,14 +25,27 @@ export default function LutLibrary() {
   const isHolding = useRef<Record<string, boolean>>({});
   const didHold = useRef<Record<string, boolean>>({});
 
-  // Videos are now loaded from localStorage (persisted across devices/refreshes)
+  // Load LUTs from Supabase via tRPC
+  const { data: dbLuts = [] } = trpc.lut.list.useQuery();
+
+  // Map DB LUTs to display format
+  const luts: DisplayLut[] = dbLuts.map((lut) => ({
+    id: lut.lutId,
+    name: lut.name,
+    tag: lut.tag,
+    desc: lut.description,
+    icon: lut.icon,
+    gradient: lut.gradient,
+    videoUrl: lut.videoUrl,
+  }));
+
   const hasVideo = useCallback((lutId: string): boolean => {
-    return !!getVideos()[lutId];
-  }, []);
+    return !!dbLuts.find((l) => l.lutId === lutId)?.videoUrl;
+  }, [dbLuts]);
 
   const getVideoUrl = useCallback((lutId: string): string | undefined => {
-    return getVideos()[lutId]?.dataUrl;
-  }, []);
+    return dbLuts.find((l) => l.lutId === lutId)?.videoUrl ?? undefined;
+  }, [dbLuts]);
 
   useEffect(() => {
     const el = sectionRef.current;
@@ -46,23 +68,19 @@ export default function LutLibrary() {
     return () => observer.disconnect();
   }, []);
 
-  // Poll for LUT edits and video updates from admin
+  // Set video sources when LUTs load
   useEffect(() => {
-    const interval = setInterval(() => {
-      setLuts(getLuts());
-
-      // Check for new videos in localStorage
-      const videos = getVideos();
-      Object.keys(videos).forEach((lutId) => {
-        const vid = document.getElementById('card-vid-' + lutId) as HTMLVideoElement | null;
-        if (videos[lutId]?.dataUrl && vid && !vid.src) {
-          vid.src = videos[lutId].dataUrl;
-          setVideoLoaded((prev) => ({ ...prev, [lutId]: true }));
+    dbLuts.forEach((lut) => {
+      if (lut.videoUrl) {
+        const vid = document.getElementById('card-vid-' + lut.lutId) as HTMLVideoElement | null;
+        if (vid && !vid.src) {
+          vid.src = lut.videoUrl;
+          vid.load();
+          setVideoLoaded((prev) => ({ ...prev, [lut.lutId]: true }));
         }
-      });
-    }, 500);
-    return () => clearInterval(interval);
-  }, []);
+      }
+    });
+  }, [dbLuts]);
 
   function startHold(lutId: string) {
     if (!hasVideo(lutId)) return;
@@ -93,7 +111,7 @@ export default function LutLibrary() {
     setHoldingCards((prev) => ({ ...prev, [lutId]: false }));
   }
 
-  function handleTap(lut: LutData) {
+  function handleTap(lut: DisplayLut) {
     if (didHold.current[lut.id]) { didHold.current[lut.id] = false; return; }
     if (!hasVideo(lut.id)) return;
     setViewerLut(lut);
