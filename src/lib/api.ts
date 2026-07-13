@@ -1,140 +1,68 @@
 // ══════════════════════════════════════════
-//  DIRECT tRPC API CLIENT
-//  For calling tRPC endpoints outside React hooks
+//  SIMPLE API CLIENT (direct fetch to Express)
+//  No tRPC, no complex types — just REST
 // ══════════════════════════════════════════
 
-const API_BASE = "/api/trpc";
+const API = "/api";
 
-async function trpcFetch(path: string, input?: unknown) {
+async function get(path: string) {
   const pin = localStorage.getItem("lc_admin_pin") ?? "";
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (pin) headers["x-admin-pin"] = pin;
+  const res = await fetch(`${API}${path}`, {
+    headers: pin ? { "x-admin-pin": pin } : {},
+  });
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+  return res.json();
+}
 
-  if (input !== undefined) {
-    const res = await fetch(`${API_BASE}/${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ json: input }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error?.message ?? `API error: ${res.status}`);
-    }
-    return data.result.data;
-  } else {
-    const res = await fetch(`${API_BASE}/${path}`, { headers });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error?.message ?? `API error: ${res.status}`);
-    }
-    return data.result.data;
-  }
+async function post(path: string, body: Record<string, unknown>) {
+  const pin = localStorage.getItem("lc_admin_pin") ?? "";
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  return res.json();
+}
+
+async function del(path: string, body: Record<string, unknown>) {
+  const pin = localStorage.getItem("lc_admin_pin") ?? "";
+  const res = await fetch(`${API}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...(pin ? { "x-admin-pin": pin } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+  return res.json();
 }
 
 // ── Users ──
-export async function apiGetUsers() {
-  return trpcFetch("user.list");
-}
-
-export async function apiCreateUser(user: {
-  firstName: string;
-  lastName?: string;
-  email: string;
-  googleId?: string;
-  googleAvatar?: string;
-  pwHash?: string;
-  memberNumber: number;
-  verified?: boolean;
-}) {
-  return trpcFetch("user.create", user);
-}
-
-export async function apiFindUser(email: string) {
-  return trpcFetch("user.findByEmail", { email });
-}
-
-export async function apiRemoveUser(email: string) {
-  return trpcFetch("user.remove", { email });
-}
-
-export async function apiUserCount() {
-  return trpcFetch("user.count");
-}
+export const apiUsers = {
+  list: () => get("/users"),
+  count: () => get("/users/count"),
+  create: (user: Record<string, unknown>) => post("/users", user),
+  remove: (email: string) => del("/users", { email }),
+  findByEmail: (email: string) => get(`/users/find?email=${encodeURIComponent(email)}`),
+};
 
 // ── LUTs ──
-export async function apiGetLuts() {
-  return trpcFetch("lut.list");
-}
-
-export async function apiCreateLut(lut: {
-  lutId: string;
-  name: string;
-  tag: string;
-  description: string;
-  icon: string;
-  gradient: string;
-}) {
-  return trpcFetch("lut.create", lut);
-}
-
-export async function apiUpdateLut(
-  lutId: string,
-  updates: Partial<{
-    name: string;
-    tag: string;
-    description: string;
-    icon: string;
-    gradient: string;
-  }>
-) {
-  return trpcFetch("lut.update", { lutId, ...updates });
-}
-
-export async function apiDeleteLut(lutId: string) {
-  return trpcFetch("lut.delete", { lutId });
-}
-
-export async function apiResetLuts() {
-  return trpcFetch("lut.resetDefaults");
-}
-
-export async function apiUploadVideo(
-  lutId: string,
-  dataUrl: string,
-  fileName: string
-) {
-  return trpcFetch("lut.uploadVideo", { lutId, dataUrl, fileName });
-}
-
-export async function apiRemoveVideo(lutId: string) {
-  return trpcFetch("lut.removeVideo", { lutId });
-}
+export const apiLuts = {
+  list: () => get("/luts"),
+  create: (lut: Record<string, unknown>) => post("/luts", lut),
+  update: (lutId: string, fields: Record<string, unknown>) => post("/luts/update", { lutId, ...fields }),
+  delete: (lutId: string) => del("/luts", { lutId }),
+  uploadVideo: (lutId: string, dataUrl: string, fileName: string) => post("/luts/video", { lutId, dataUrl, fileName }),
+  removeVideo: (lutId: string) => del("/luts/video", { lutId }),
+};
 
 // ── Waitlist ──
-export async function apiGetWaitlist() {
-  return trpcFetch("waitlist.list");
-}
-
-export async function apiSignupWaitlist(email: string) {
-  return trpcFetch("waitlist.signup", { email });
-}
-
-export async function apiWaitlistCount() {
-  return trpcFetch("waitlist.count");
-}
+export const apiWaitlist = {
+  list: () => get("/waitlist"),
+  signup: (email: string) => post("/waitlist", { email }),
+};
 
 // ── Hero Images ──
-export async function apiGetHeroImages() {
-  return trpcFetch("hero.list");
-}
-
-export async function apiUpdateHeroImage(input: {
-  slot: number;
-  imageUrl?: string;
-  caption?: string;
-  base64Data?: string;
-}) {
-  return trpcFetch("hero.update", input);
-}
+export const apiHero = {
+  list: () => get("/hero"),
+  update: (slot: number, base64Data: string) => post("/hero", { slot, base64Data }),
+};
